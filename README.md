@@ -8,9 +8,9 @@
 [简体中文](README.zh-CN.md)
 
 ```text
-CPU ▰▰▰▱  68%  RAM ▰▰▱▱  47%  DISK ▰▰▰▱  82%
+🟢 CPU ▰▰▰▱  68%  🟢 RAM ▰▰▱▱  47%  🟡 DISK ▰▰▰▱  82%
 
-CPU ▰▰▰▱  68%  RAM ▰▰▱▱ 11.0/23.4 GiB  DISK ▰▰▰▱ 115.1/147.2 GiB
+🟢 CPU ▰▰▰▱  68%  🟢 RAM ▰▰▱▱ 11.0/23.4 GiB  🟡 DISK ▰▰▰▱ 115.1/147.2 GiB
 ```
 
 Example readings above illustrate the two display modes. Press **Ctrl+B, then U** after adding the optional binding to switch RAM and disk between percentage and used/total. CPU stays a percentage; the gauges always show the usage ratio.
@@ -87,7 +87,9 @@ herdr plugin action invoke faintghost.system-stats.resume
 
 Default display mode is percentage. Display mode and pause state survive restarts, updates and reinstallations because they live in Herdr's plugin state directory, not the source checkout. Sessions that use the same state directory share these choices. Pausing hides the top-bar output at its next refresh; it does not close a detail pane or stop Herdr from invoking the configured command.
 
-The detail pane labels values below 75% as **正常** (normal), 75–89% as **偏高** (elevated) and 90% or more as **高占用** (high). It uses the terminal's green/yellow/red palette, numbers and text labels together. `NO_COLOR` suppresses colors; redirected output never contains ANSI styles. Top-bar output is plain text because Herdr strips ANSI styling from command entries. The detail UI currently uses Chinese labels; CLI help and setup instructions are English.
+Top-bar readings start with green, yellow or red status markers at the same thresholds as the detail pane: below 75% is **正常** (normal), 75–89% is **偏高** (elevated), and 90% or more is **高占用** (high). An unavailable reading uses a neutral `○` and `--`. Numbers and gauges inherit Herdr's theme, so they follow its light/dark appearance without a separate plugin theme setting. Colored markers are Unicode emoji; their color rendering depends on your terminal and font. Herdr strips ANSI styling from command entries, so the plugin does not try to color the top-bar text with escape sequences.
+
+The detail pane uses the terminal's green/yellow/red palette with numbers and text labels. `NO_COLOR` (including an empty value) or `TERM=dumb` suppresses both top-bar markers and detail colors. Redirected output never contains ANSI styles; `status` keeps its Unicode markers unless colors are disabled. The detail UI currently uses Chinese labels; CLI help and setup instructions are English.
 
 ## Choose disks
 

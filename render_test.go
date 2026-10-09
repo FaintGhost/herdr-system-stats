@@ -26,3 +26,38 @@ func TestWrapCellsKeepsPathsAndNumericTokens(t *testing.T) {
 		t.Errorf("wrapping dropped path text: got %q, want %q", got, path)
 	}
 }
+
+func TestStatusIndicatorsFollowUsage(t *testing.T) {
+	for _, tc := range []struct {
+		percent *float64
+		marker  string
+	}{
+		{nil, "○"},
+		{new(0.0), "🟢"},
+		{new(74.9), "🟢"},
+		{new(75.0), "🟡"},
+		{new(89.9), "🟡"},
+		{new(90.0), "🔴"},
+		{new(100.0), "🔴"},
+	} {
+		data := Snapshot{
+			CPUPercent: tc.percent,
+			Memory:     MemoryUsage{Percent: 80, UsedBytes: 8 << 30, TotalBytes: 10 << 30},
+			Disks:      []DiskUsage{{Path: "/", Percent: new(92.0), UsedBytes: 92 << 30, TotalBytes: 100 << 30}},
+		}
+		for _, mode := range []string{"percent", "used"} {
+			line := statusLine(data, mode, true)
+			for _, want := range []string{tc.marker + " CPU", "🟡 RAM", "🔴 DISK"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("mode %s: missing %q in %q", mode, want, line)
+				}
+			}
+			if tc.percent == nil && !strings.Contains(line, "--") {
+				t.Errorf("unavailable CPU must retain its reading: %q", line)
+			}
+			if plain := statusLine(data, mode, false); strings.ContainsAny(plain, "🟢🟡🔴○\x1b") {
+				t.Errorf("colors disabled: unexpected indicator or ANSI in %q", plain)
+			}
+		}
+	}
+}

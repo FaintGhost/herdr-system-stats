@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-10-10
+
+- Add green/yellow/red Unicode status markers to top-bar CPU, RAM and disk readings, using the detail pane's existing severity thresholds.
+- Keep numbers and gauges in Herdr's native light/dark theme colors; color glyph rendering depends on terminal/font support.
+- Honor `NO_COLOR` and `TERM=dumb` for top-bar markers while preserving plain readings and raw JSON output.
+
 ## 1.0.0
 
 - Publish the Linux Go implementation of the Herdr System Stats plugin.

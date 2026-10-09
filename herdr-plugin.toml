@@ -1,6 +1,6 @@
 id = "faintghost.system-stats"
 name = "System Stats"
-version = "1.0.0"
+version = "1.1.0"
 min_herdr_version = "0.9.3"
 description = "Whole-machine CPU, RAM and disk usage in the Herdr status bar"
 platforms = ["linux"]

@@ -14,24 +14,37 @@ import (
 
 var byteUnits = [...]string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
 
-func statusLine(data Snapshot, display string) string {
+func statusLine(data Snapshot, display string, color bool) string {
 	var out strings.Builder
 	out.Grow(64 + len(data.Disks)*48)
-	writeStatusMetric(&out, "CPU", data.CPUPercent, formatPercent(data.CPUPercent))
+	writeStatusMetric(&out, "CPU", data.CPUPercent, formatPercent(data.CPUPercent), color)
 	out.WriteString("  ")
-	writeStatusMetric(&out, "RAM", &data.Memory.Percent, formatReading(&data.Memory.Percent, data.Memory.UsedBytes, data.Memory.TotalBytes, display))
+	writeStatusMetric(&out, "RAM", &data.Memory.Percent, formatReading(&data.Memory.Percent, data.Memory.UsedBytes, data.Memory.TotalBytes, display), color)
 	for _, disk := range data.Disks {
 		out.WriteString("  ")
 		label := "DISK"
 		if len(data.Disks) > 1 {
 			label += " " + disk.Path
 		}
-		writeStatusMetric(&out, label, disk.Percent, formatReading(disk.Percent, disk.UsedBytes, disk.TotalBytes, display))
+		writeStatusMetric(&out, label, disk.Percent, formatReading(disk.Percent, disk.UsedBytes, disk.TotalBytes, display), color)
 	}
 	return out.String()
 }
 
-func writeStatusMetric(out *strings.Builder, label string, value *float64, reading string) {
+func writeStatusMetric(out *strings.Builder, label string, value *float64, reading string, color bool) {
+	if color {
+		_, code := usageLevel(value)
+		switch code {
+		case "32":
+			out.WriteString("🟢 ")
+		case "33":
+			out.WriteString("🟡 ")
+		case "31":
+			out.WriteString("🔴 ")
+		default:
+			out.WriteString("○ ")
+		}
+	}
 	out.WriteString(label)
 	out.WriteByte(' ')
 	writeMeter(out, value, 4, "▰", "▱")

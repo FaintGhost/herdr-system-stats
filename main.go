@@ -99,7 +99,7 @@ func run(ctx context.Context, args []string) error {
 		columns, _, terminal := terminalSize(os.Stdout)
 		fmt.Println(details(data, columns, colorsEnabled(terminal), mode))
 	} else {
-		fmt.Println(statusLine(data, mode))
+		fmt.Println(statusLine(data, mode, colorsEnabled(true)))
 	}
 	return nil
 }
