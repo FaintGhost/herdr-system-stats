@@ -1,0 +1,39 @@
+id = "faintghost.system-stats"
+name = "System Stats"
+version = "1.0.0"
+min_herdr_version = "0.9.3"
+description = "Whole-machine CPU, RAM and disk usage in the Herdr status bar"
+platforms = ["linux"]
+
+[[build]]
+command = ["go", "build", "-trimpath", "-ldflags=-s -w", "-o", "bin/herdr-system-stats", "."]
+
+[[actions]]
+id = "pause"
+title = "Pause resource status"
+contexts = ["workspace"]
+command = ["./bin/herdr-system-stats", "pause"]
+
+[[actions]]
+id = "resume"
+title = "Resume resource status"
+contexts = ["workspace"]
+command = ["./bin/herdr-system-stats", "resume"]
+
+[[actions]]
+id = "toggle-display"
+title = "Toggle percentage / used-total"
+contexts = ["workspace"]
+command = ["./bin/herdr-system-stats", "toggle-display"]
+
+[[panes]]
+id = "setup"
+title = "System Stats setup"
+placement = "overlay"
+command = ["./bin/herdr-system-stats", "setup", "--wait"]
+
+[[panes]]
+id = "monitor"
+title = "System Stats"
+placement = "overlay"
+command = ["./bin/herdr-system-stats", "watch"]
