@@ -9,6 +9,8 @@
 - On Windows, `disks` takes drive letters (`"C:"`, `"D:\"`), the default `"/"` means the system drive, and the panel labels it with the real letter.
 - The panel's CPU caption names the window its number covers: `250 ms 采样` on Linux, `1 s 采样` on macOS, `WMI 计数` on Windows.
 - Tests cover the shared scripts, the direct-percentage and byte-based samples, and run the sampler for real on Linux, macOS or Windows; the Windows script is asserted to carry no double quote, so `exec` never has to escape it.
+- Right-align the strip's readings: a percentage-only row left its slack between the last number and the window edge, where the status bar's own items (`Ctrl+Shift+P commands`) end flush.
+- Add `.github/workflows/release.yml`: pushing a `v*` tag runs the checks again, packs the two mods into `herdr-system-stats-<version>.zip` and publishes that release with this file's section for the version as notes.
 - Rewrite both READMEs around the three platforms: what each system is read through, how a reading is defined (macOS APFS container, Windows drives), a props table, and a troubleshooting section that says how to run the samplers by hand. Refresh `docs/app.png`.
 
 ## 2.0.0 - 2026-11-12

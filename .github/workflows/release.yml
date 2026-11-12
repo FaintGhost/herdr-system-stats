@@ -1,0 +1,75 @@
+name: release
+
+# A `v*` tag publishes a release: the checks run again, the two mods are zipped
+# with `sysstats/` and `sysstats-panel/` at the archive's root (what
+# `Expand-Archive` in the README expects), and the notes are this version's
+# section of CHANGELOG.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Never publish what does not pass
+        run: |
+          node --check mods/sysstats/main.js
+          node --check mods/sysstats-panel/main.js
+          node --test tests/*.test.mjs
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Take this version's notes from the changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## " v "( |$)" { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $VERSION" >&2
+            exit 1
+          fi
+          cat notes.md
+
+      - name: Pack the two mods
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          cp -r mods/sysstats mods/sysstats-panel dist/
+          cd dist
+          zip -r "../herdr-system-stats-$VERSION.zip" sysstats sysstats-panel
+          cd ..
+          unzip -l "herdr-system-stats-$VERSION.zip"
+
+      - name: Publish, or replace the assets of a release that exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          zip="herdr-system-stats-$VERSION.zip"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" "$zip" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              --verify-tag
+          fi

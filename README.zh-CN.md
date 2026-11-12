@@ -181,6 +181,10 @@ herdr-app check mods/sysstats     # 在真 app 里加载并渲染一次
 ```
 
 测试会在 Linux / macOS 上真跑 POSIX 采样，在 Windows 上真跑 PowerShell 采样，不适用的平台跳过。
+
+发版也是同一套：推一个 `v<version>` tag，`.github/workflows/release.yml` 会重跑这些检查，把
+`sysstats/` 和 `sysstats-panel/` 打成 `herdr-system-stats-<version>.zip`，并用 `CHANGELOG.md` 里该
+版本那一节当 release notes 发出去。
 `gpui-kit.d.ts` 是 app 生成给编辑器用的，不入库。
 
 ## 卸载
