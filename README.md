@@ -11,14 +11,34 @@ This is the old Herdr TUI plugin `faintghost.system-stats`, rebuilt for **herdr-
 window. It is a **mod**: JavaScript on gpui-kit, no Go, nothing to compile.
 
 The numbers are not local. A mod calls `exec(..., { on: machine })`, which goes through
-`hc exec --on <machine>`, so the sampler runs on **the machine the shown space lives on**
-(`/proc/stat`, `/proc/meminfo`, `df -B1`). A window on Windows still reports a Linux server's CPU,
-memory and disk.
+`hc exec --on <machine>`, so the sampler runs on **the machine the shown space lives on**, with the
+tools that system already has. A window on Windows still reports a Linux server's CPU, memory and
+disk.
 
 ## What you need
 
 - herdr-app (Windows, macOS, Linux)
-- the machines to watch must be Linux: `/proc`, `sh`, `awk`, `df`
+- nothing to install on the machines you watch: Linux is read through `/proc` and `df`, macOS
+  through `iostat`, `sysctl`, `vm_stat` and `df`, Windows through PowerShell and the WMI classes it
+  ships with. No sudo, no daemon, no agent.
+
+## Which numbers, per system
+
+| | CPU | memory | disk |
+|---|---|---|---|
+| Linux | `/proc/stat`, two reads 250 ms apart | `/proc/meminfo` (`MemAvailable`) | `df -B1` |
+| macOS | `iostat -c 2 -w 1`, user + system of the second sample (1 s) | `sysctl hw.memsize`, `vm_stat` free + inactive + speculative pages | `df -k` |
+| Windows | `Win32_PerfFormattedData_PerfOS_Processor` (`_Total`), WMI's own counter | `Win32_OperatingSystem` (`TotalVisibleMemorySize`, `FreePhysicalMemory`) | `Win32_LogicalDisk` (`Size`, `FreeSpace`) |
+
+Two details that decide what a reading means:
+
+- **macOS disk** is the APFS container: `df /` lists only the sealed system volume (13 GB on a clean
+  Mac), so the sampler takes `total − available` as used, the number `diskutil apfs list` prints.
+  A 256 GB Mac therefore reads `245.1 GB` / `228.3 GiB` — what a formatted 256 GB drive holds — and
+  about 65 % used. Finder can show a little more *available* than `df` does, because macOS counts
+  purgeable space as free.
+- **Windows disk** is a drive: `disks: ["C:", "D:"]`; the default `"/"` means the system drive
+  (`%SystemDrive%`), and the panel labels it with the real letter.
 
 ## Install on Windows
 
@@ -116,6 +136,10 @@ argument.
 
 `machine` is a name from `hc machine ls`. Both mods take both props.
 
+A machine is asked once which shell it speaks, and remembered: `sh` where it exists, otherwise
+PowerShell. A Windows with Git's `sh` on `PATH` answers as MINGW and is sampled through PowerShell
+anyway.
+
 ## How it maps to the TUI plugin
 
 | TUI plugin | Here |
@@ -130,16 +154,21 @@ argument.
 | the `setup` pane (prints a config.toml snippet) | dropped: that one was for the TUI |
 
 Wording follows the plugin: `整机资源`, `正常 / 偏高 / 高占用 / 不可用`, `已用 x / y`,
-`可用 x / 总计 y`, `所有核心 · 250 ms 采样`.
+`可用 x / 总计 y`, `所有核心 · 250 ms 采样` — that last one names the window the CPU number covers,
+so it reads `1 s 采样` on macOS and `WMI 计数` on Windows.
 
 ## When something is off
 
 - `herdr-app status`: what the window shows and its `errors` — a mod's JavaScript errors land here.
 - The strip shows `system stats: …`: that is the `exec` error (machine unreachable, no `sh`,
   timeout). While sampling fails the last numbers stay, dimmed.
-- Unavailable readings with a space on this machine (Windows): the sampler only speaks Linux.
-- Suspect the numbers? The strip uses exactly `hc exec --on <machine> …`; try that by hand:
-  `hc exec --on <machine> sh -c 'df -B1 /'`.
+- PowerShell missing, or blocked by policy, on a Windows machine: the strip says so and keeps the
+  last numbers, dimmed. `Get-CimInstance` is all it needs.
+- A slow first reading on Windows is normal: the first WMI call loads the performance archive
+  (a few seconds). Later samples take about a second.
+- Suspect the numbers? The samplers are plain shell: on Linux and macOS run
+  `hc exec --on <machine> sh -c '<the POSIX script>' sh /`, on Windows
+  `hc exec --on <machine> powershell.exe -NoProfile -Command '<the script>'`.
 
 ## Uninstall
 

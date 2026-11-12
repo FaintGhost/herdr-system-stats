@@ -10,13 +10,31 @@ Herdr 的 CPU / 内存 / 磁盘用量显示：状态栏一行，外加一个可�
 **herdr-app**，它的扩展叫 **mod**，用 JavaScript（gpui-kit）写，不需要 Go、不需要编译。
 
 数值也不是本机的：mod 通过 `exec(..., { on: machine })` 让 `hc exec --on <machine>` 在**当前 space
-所在的那台机器**上采样（`/proc/stat`、`/proc/meminfo`、`df -B1`）。所以 Windows 上的窗口照样能显示
-Linux 服务器的 CPU / 内存 / 磁盘。
+所在的那台机器**上采样，用的是那台系统自带的东西。所以 Windows 上的窗口照样能显示 Linux 服务器的
+CPU / 内存 / 磁盘，反过来也一样。
 
 ## 需要
 
 - herdr-app（Windows / macOS / Linux 都有）
-- 被监控的机器是 Linux：要 `/proc`、`sh`、`awk`、`df`
+- 被看的机器上什么都不用装：Linux 读 `/proc` 和 `df`，macOS 用 `iostat`、`sysctl`、`vm_stat`、
+  `df`，Windows 用自带的 PowerShell 和 WMI 类。不要 sudo、不要守护进程、不要 agent。
+
+## 各平台读的是什么
+
+| | CPU | 内存 | 磁盘 |
+|---|---|---|---|
+| Linux | `/proc/stat`，隔 250 ms 读两次 | `/proc/meminfo`（`MemAvailable`） | `df -B1` |
+| macOS | `iostat -c 2 -w 1`，取第二个样本的 user + system（1 秒） | `sysctl hw.memsize`，`vm_stat` 的 free + inactive + speculative | `df -k` |
+| Windows | `Win32_PerfFormattedData_PerfOS_Processor`（`_Total`），WMI 自己的计数器 | `Win32_OperatingSystem`（`TotalVisibleMemorySize`、`FreePhysicalMemory`） | `Win32_LogicalDisk`（`Size`、`FreeSpace`） |
+
+两个决定读数含义的细节：
+
+- **macOS 的磁盘**是整个 APFS 容器：`df /` 只列那个只读的系统卷（干净系统上只有 13 GB），所以采样用
+  `总量 − 可用` 当已用，和 `diskutil apfs list` 的数一致。256 GB 的 Mac 因此显示 `245.1 GB` /
+  `228.3 GiB`（一块格式化过的 256 GB 盘就是这个容量），已用约 65%。Finder 显示的“可用”会比 `df`
+  多几个 GB，因为 macOS 把 purgeable 也算成可用。
+- **Windows 的磁盘**是盘符：`disks: ["C:", "D:"]`；默认的 `"/"` 指系统盘（`%SystemDrive%`），面板上
+  标的是真实盘符。
 
 ## Windows 安装
 
@@ -110,6 +128,9 @@ CLI 用 `--flag` 形式最省事；PowerShell 5.1 传 JSON 参数容易把双引
 
 `machine` 是 `hc machine ls` 里的名字。两个 mod 都认这两个 props。
 
+一台机器只会被问一次“你说哪种 shell”，之后记住：有 `sh` 就用 `sh`，没有就用 PowerShell。PATH 里
+带了 Git 的 `sh` 的 Windows 会自称 MINGW，照样走 PowerShell 采样。
+
 ## 和 TUI 插件对应
 
 | 旧 TUI 插件 | 现在 |
@@ -124,16 +145,20 @@ CLI 用 `--flag` 形式最省事；PowerShell 5.1 传 JSON 参数容易把双引
 | `setup` 面板（打印 config.toml 片段） | 没搬：那是写给 TUI 的 |
 
 文案沿用插件：`整机资源`、`正常 / 偏高 / 高占用 / 不可用`、`已用 x / y`、`可用 x / 总计 y`、
-`所有核心 · 250 ms 采样`。
+`所有核心 · 250 ms 采样`——最后那句说的是 CPU 数字覆盖的窗口，macOS 上是 `1 s 采样`，Windows 上是
+`WMI 计数`。
 
 ## 出问题
 
 - `herdr-app status`：窗口状态和 `errors`，mod 的 JS 报错在这里。
 - 状态栏显示 `system stats: …`：那是 `exec` 的报错（机器不可达、没有 `sh`、超时）。
   采集中断时保留上一次读数，整行变暗。
-- space 在本机（Windows）时读数不可用：采样只支持 Linux。
-- 数字不对：`hc exec --on <machine> …` 就是它在跑的通道，先在终端里试
-  `herdr-app check` 之外的那条：直接 `hc exec --on <machine> sh -c 'df -B1 /'`。
+- Windows 上没有 PowerShell、或者被策略挡了：状态栏会这么说，并保留上一次读数（变暗）。
+  它只需要 `Get-CimInstance`。
+- Windows 上第一次读数慢是正常的：第一次 WMI 调用要加载性能计数器库（几秒）。之后每次约 1 秒。
+- 数字不对：采样就是一段普通的 shell，Linux / macOS 上
+  `hc exec --on <machine> sh -c '<POSIX 脚本>' sh /`，Windows 上
+  `hc exec --on <machine> powershell.exe -NoProfile -Command '<脚本>'`。
 
 ## 卸载
 
