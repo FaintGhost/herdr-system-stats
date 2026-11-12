@@ -1,186 +1,158 @@
 # Herdr System Stats
 
-**用 Go 编写的 Herdr 整机 CPU、内存和磁盘监控插件。**
+[English](README.md) · 中文
 
-[English](README.md)
+![状态栏和详情面板](docs/app.png)
 
-```text
-🟢 CPU ▰▰▰▱  68%  🟢 RAM ▰▰▱▱  47%  🟡 DISK ▰▰▰▱  82%
+Herdr 的 CPU / 内存 / 磁盘用量显示：状态栏一行，外加一个可以 split 的详情面板。
 
-🟢 CPU ▰▰▰▱  68%  🟢 RAM ▰▰▱▱ 11.0/23.4 GiB  🟡 DISK ▰▰▰▱ 115.1/147.2 GiB
+这是旧版 Herdr TUI 插件 `faintghost.system-stats` 的复刻，但不再是 TUI 插件——Herdr 的窗口叫
+**herdr-app**，它的扩展叫 **mod**，用 JavaScript（gpui-kit）写，不需要 Go、不需要编译。
+
+数值也不是本机的：mod 通过 `exec(..., { on: machine })` 让 `hc exec --on <machine>` 在**当前 space
+所在的那台机器**上采样（`/proc/stat`、`/proc/meminfo`、`df -B1`）。所以 Windows 上的窗口照样能显示
+Linux 服务器的 CPU / 内存 / 磁盘。
+
+## 需要
+
+- herdr-app（Windows / macOS / Linux 都有）
+- 被监控的机器是 Linux：要 `/proc`、`sh`、`awk`、`df`
+
+## Windows 安装
+
+mod 的家在 `%USERPROFILE%\.config\herdr-app`（注意是 `.config` 目录，不是 `AppData`）。
+两个文件夹放进去就行：
+
+```
+%USERPROFILE%\.config\herdr-app\
+  mods\sysstats\main.js
+  mods\sysstats\mod.json
+  mods\sysstats-panel\main.js
+  mods\sysstats-panel\mod.json
 ```
 
-上面是两种显示模式的示例。配置快捷键后，**Ctrl+B，再按 U** 切换内存和磁盘的百分比／已用总量。CPU 始终使用百分比，进度条始终表示占用比例。
+在 PowerShell 里从放着这份代码的机器上拷（Windows 10/11 自带 OpenSSH 客户端）：
 
-顶部状态栏由 Herdr 原生命令调度，每 5 秒采样；详情面板每 2 秒刷新，显示长进度条、剩余空间和占用状态。无需 Python、Node 或额外常驻进程，采样不启动系统命令，也不会自动修改你的 Herdr 配置。
+```powershell
+$mods = "$env:USERPROFILE\.config\herdr-app\mods"
+New-Item -ItemType Directory -Force $mods | Out-Null
 
-## 环境要求
-
-| 项目 | 要求 |
-| --- | --- |
-| 系统 | Linux；CI 构建 amd64 和 arm64 |
-| Herdr | 0.9.3 或更高 |
-| 安装工具 | 运行 Herdr 服务的机器上需要 Go 1.26+ 和 Git |
-| 运行 | 编译后的单个二进制，以及可读的 `/proc/stat`、`/proc/meminfo` |
-
-安装时从源码编译，下载固定版本的 `golang.org/x/text` 处理终端字符宽度；不依赖 CGO。当前不支持 macOS、Windows。
-
-## 安装并启用顶部状态栏
-
-```sh
-herdr plugin install FaintGhost/herdr-system-stats
-herdr plugin pane open --plugin faintghost.system-stats --entrypoint setup
+scp -r root@<host>:/root/pp/herdr-system-stats/mods/sysstats       "$mods"
+scp -r root@<host>:/root/pp/herdr-system-stats/mods/sysstats-panel "$mods"
 ```
 
-插件 ID 是 **`faintghost.system-stats`**。Herdr 会预览构建和运行命令；编译输出为 `bin/herdr-system-stats`。
+不想用 scp 也可以手动建这两个文件夹，把 `main.js` 和 `mod.json` 贴进去。
 
-Setup 面板打印本机实际可用的 TOML 配置，包含二进制、config 和 state 的绝对路径。将其 command 条目合并到已有 `[ui]` 的 `tab_bar_right` 数组中，保留其他条目；已有 `[ui]` 时不要再创建第二个同名表。没有该表时只创建一次。生成的命令会处理路径中的空格和单引号。
+最省事的还是压缩包：从 [Releases](https://github.com/FaintGhost/herdr-system-stats/releases) 下
+`herdr-system-stats-<版本>.zip`，解压到 `mods` 里（包里就是 `sysstats\` 和 `sysstats-panel\` 两个文件夹）：
 
-Setup 还打印可选的 U 快捷键；如果已经占用，请选一个空闲键。按 Enter 或 Ctrl+C 关闭 Setup，然后执行：
-
-```sh
-herdr config check
-herdr server reload-config
+```powershell
+Expand-Archive herdr-system-stats-2.0.0.zip -DestinationPath "$env:USERPROFILE\.config\herdr-app\mods" -Force
 ```
 
-如果当前客户端布局未更新，在 Herdr 菜单选择 **reload config**。无需重启。只安装插件不会自动添加顶部显示。
+装完验证一下（app 会热加载 mod，不用重启）：
 
-## 快捷键和操作
-
-将以下配置追加到 `config.toml` 顶层：
-
-```toml
-[[keys.command]]
-key = "prefix+u"
-type = "plugin_action"
-command = "faintghost.system-stats.toggle-display"
-description = "切换资源百分比／用量"
+```powershell
+herdr-app check "$env:USERPROFILE\.config\herdr-app\mods\sysstats"
+herdr-app check "$env:USERPROFILE\.config\herdr-app\mods\sysstats-panel"
 ```
 
-保存快捷键后，先执行 `herdr config check`，再在 Herdr 菜单选择 **reload config**，刷新客户端快捷键。只重载服务器，不能激活另一客户端本地配置中新添加的绑定。
+两行都输出 `check passed: …` 就成了；有错会指出文件和行号。
 
-默认 prefix 是 Ctrl+B：按下并松开，再按 U。如果改过 prefix，使用你自己的组合。显示选择会保存，重启和更新后保留；共用同一 state 目录的 session 共用该选择。
+## 放进状态栏
 
-```sh
-# 打开实时详情面板，Ctrl+C 关闭
-herdr plugin pane open --plugin faintghost.system-stats --entrypoint monitor
+自带的 layout 每次启动都会被 herdr-app 覆盖，所以先复制一份自己的：
 
-# 也可从插件动作菜单切换
-herdr plugin action invoke faintghost.system-stats.toggle-display
+- app 里按 `Ctrl+Shift+P` → **Duplicate layout**（得到 `main-copy`），或者
+- 命令行：`herdr-app do layout.clone --name main --as my-main`
 
-# 暂停／恢复顶部显示
-herdr plugin action invoke faintghost.system-stats.pause
-herdr plugin action invoke faintghost.system-stats.resume
-```
-
-顶部最迟下一次 5 秒刷新生效，已经打开的详情面板下一次 2 秒刷新同步。默认使用百分比。Pause 状态同样保存；暂停只让状态栏输出为空，不会关闭详情面板，也不停止 Herdr 的 command 调度。
-
-顶部读数前加绿／黄／红状态标记，与详情面板共用阈值：低于 75% 为“正常”，75–89% 为“偏高”，90% 起为“高占用”。不可用读数使用中性 `○` 和 `--`。数字与进度条继承 Herdr 主题，随亮暗外观变化，无需单独设置插件主题。彩色标记使用 Unicode emoji，是否呈现彩色取决于终端和字体。Herdr 会过滤 command 输出的 ANSI 颜色，因此顶部文字不通过转义序列着色。
-
-详情面板使用终端的绿／黄／红调色板，始终保留数字和文字标签。设置 `NO_COLOR`（包括空值）或 `TERM=dumb` 可关闭顶部彩色标记和详情颜色。重定向输出不带 ANSI 样式；`status` 仍保留 Unicode 标记，除非禁用颜色。详情标签目前为中文，CLI 帮助和 Setup 为英文。
-
-## 设置磁盘
-
-查询插件配置目录：
-
-```sh
-herdr plugin config-dir faintghost.system-stats
-```
-
-在该目录创建 **`config.json`**：
+然后编辑 `%USERPROFILE%\.config\herdr-app\layouts\main-copy.json`（或者 `my-main.json`），
+把文件底部这段：
 
 ```json
-{
-  "disks": ["/", "/mnt/data"]
-}
+{ "id": "status", "type": "block", "size": { "px": 28 },
+  "content": { "mod": "workspace-status" } }
 ```
 
-不创建配置文件时默认监控 `/`。路径必须是绝对路径，路径所在的整个文件系统就是统计对象；同一文件系统的多个路径会重复显示，请每个文件系统只选一个。不存在或不可读取的路径显示 `--`，详情给出错误。
+改成一行两块：
 
-顶部下一次调用会重读配置；已打开的详情面板需重新打开以应用新的 disks。空数组、相对路径、未知字段和控制字符会报错。Herdr 会清除失败命令的显示，避免保留旧数据。Go 发布版的用户配置是 JSON，不读取先前本地 Python 原型的 `config.toml`。
+```json
+{ "id": "status", "type": "row", "size": { "px": 28 }, "children": [
+    { "id": "status-bar",   "type": "block", "content": { "mod": "workspace-status" } },
+    { "id": "status-stats", "type": "block", "size": { "px": 430 }, "content": { "mod": "sysstats" } } ] }
+```
 
-## 独立运行
+保存即生效，窗口一秒内跟着变。
+
+`430` 只是量级：百分比模式 + 单个磁盘。切到“已用/总计”模式读数字更宽（`115.2/147.2 GiB`），
+多一个磁盘还会多一块 `DISK /data`，那就把 px 加到 520 左右。
+
+## 详情面板
+
+跟终端一样 split 出来：
+
+```powershell
+herdr-app do pane.split --direction right --mod sysstats-panel
+```
+
+CLI 用 `--flag` 形式最省事；PowerShell 5.1 传 JSON 参数容易把双引号吃掉，能写文件就别写 JSON 串。
+
+## 用
+
+- **点一下统计条**：百分比 ⇄ 已用/总计（状态栏和面板各记各的）。
+- 默认跟随当前 space 所在的机器，和状态栏左边那个 `This computer` / 机器名一致。
+- 想钉死一台机器、或者报多个磁盘，在 layout 里给 props：
+
+```json
+{ "id": "status-stats", "type": "block", "size": { "px": 520 },
+  "content": { "mod": "sysstats", "props": { "machine": "vps", "disks": ["/", "/data"] } } }
+```
+
+`machine` 是 `hc machine ls` 里的名字。两个 mod 都认这两个 props。
+
+## 和 TUI 插件对应
+
+| 旧 TUI 插件 | 现在 |
+|---|---|
+| `[ui].tab_bar_right` 里每 5 秒跑 `status` | `sysstats` mod，5 秒采样 |
+| `watch` 详情面板（2 秒刷新） | `sysstats-panel` mod，2 秒采样 |
+| ≥90 红 / ≥75 黄 / 其余绿 | 主题的 `ansi1` / `ansi3` / `ansi2` |
+| 4 格 `▰▱` 计量条 | 4 个圆角小块，颜色同上 |
+| `prefix+u` 切百分比 / 已用总计 | 点一下那一条 |
+| 读数不可用显示 `--` / `○` | 一样 |
+| `pause` / `resume` 动作 | 没搬：可见才采样，暂停没意义 |
+| `setup` 面板（打印 config.toml 片段） | 没搬：那是写给 TUI 的 |
+
+文案沿用插件：`整机资源`、`正常 / 偏高 / 高占用 / 不可用`、`已用 x / y`、`可用 x / 总计 y`、
+`所有核心 · 250 ms 采样`。
+
+## 出问题
+
+- `herdr-app status`：窗口状态和 `errors`，mod 的 JS 报错在这里。
+- 状态栏显示 `system stats: …`：那是 `exec` 的报错（机器不可达、没有 `sh`、超时）。
+  采集中断时保留上一次读数，整行变暗。
+- space 在本机（Windows）时读数不可用：采样只支持 Linux。
+- 数字不对：`hc exec --on <machine> …` 就是它在跑的通道，先在终端里试
+  `herdr-app check` 之外的那条：直接 `hc exec --on <machine> sh -c 'df -B1 /'`。
+
+## 卸载
+
+删掉 `mods\sysstats` 和 `mods\sysstats-panel`，再把 layout 里那两块删掉（或者直接切回 `main`）。
+
+## 开发
 
 ```sh
-./bin/herdr-system-stats status
-./bin/herdr-system-stats once --display used
-./bin/herdr-system-stats watch
-./bin/herdr-system-stats once --json
-./bin/herdr-system-stats --help
+node --check mods/sysstats/main.js
+node --test tests/*.test.mjs      # 采样脚本 + 解析 + 格式化，不需要 herdr-app
+herdr-app check mods/sysstats     # 真 app 加载一次并渲染，报错给到行
 ```
 
-参数放在子命令之后：
+- 两个 mod 是单文件：herdr-app 的 mod 只保证 `import "gpui-kit" / "gpui-base" / "herdr"`，
+  所以采样和格式化那一段两边是复制的，`tests/logic.test.mjs` 会检查它们没跑偏。
+- `gpui-kit.d.ts` 是 app 生成给编辑器看的，不进仓库（`.gitignore` 里）。
+- 旧版 Go 实现（TUI 插件）已从这个仓库移除，历史里还在：`git log --all -- main.go`；
+  `1.1.0` 是最后一个 Go 版本。
 
-| 参数 | 用途 |
-| --- | --- |
-| `--config PATH` | 指定可选 JSON 配置 |
-| `--state-dir DIR` | 指定持久化状态目录 |
-| `--display percent\|used` | 临时覆盖保存的显示模式 |
-| `--json` | 输出一次原始采样；即使子命令是 watch 也只输出一次 |
-| `--wait` | Setup 在终端中等待 Enter 或 Ctrl+C |
+## License
 
-插件 action/pane 使用 Herdr 注入的 `HERDR_PLUGIN_CONFIG_DIR` 和 `HERDR_PLUGIN_STATE_DIR`。独立运行时，配置位于 `$XDG_CONFIG_HOME/herdr/plugins/config/faintghost.system-stats/config.json`，状态位于 `$XDG_STATE_HOME/herdr/plugins/faintghost.system-stats`；默认根目录为 `~/.config` 和 `~/.local/state`。Setup 的顶部命令显式传入这两个路径，使它与插件动作共用状态。
-
-## 统计口径
-
-| 指标 | 计算方法 |
-| --- | --- |
-| CPU | `/proc/stat` 两次采样，间隔 250 ms；所有核心合计归一化到 0–100%，iowait 计为空闲，guest 不重复计算。计数器回退或未前进显示 `--`。 |
-| 内存 | `MemTotal − MemAvailable`，可回收缓存视为可用。 |
-| 磁盘百分比 | `ceil(used / (used + available) × 100)`，与 `df Use%` 一致，排除保留块。 |
-| 磁盘用量 | 已用字节／文件系统全部容量；可用空间另外显示。保留块导致该分数可能与百分比不完全相等。 |
-| 单位 | 按总容量选择统一的二进制单位，1 GiB = 1024³ 字节。 |
-
-统计整机，不归属到各 workspace 或进程。CPU 是 250 ms 窗口，不是过去 5 秒均值；磁盘是容量，不是 I/O 速度。容器中的 `/proc` 可能显示主机总量，不按 cgroup 限额重新归一化。
-
-JSON 保留原始字节和百分比，不随显示模式换算。不可用 CPU／磁盘百分比为 `null`；不可读磁盘的字节字段为零占位，不能作为真实容量使用，应先判断 `percent` 和 `error`。
-
-## 远程与窄窗口
-
-插件采样运行 Herdr 服务的机器。SSH 使用时，将插件和 Go 工具链安装在远端。打开远端 Setup 面板取得服务端路径，再将生成的状态栏条目放入客户端的显示配置；不要替换成本机路径。Herdr 的 command 在服务端执行。
-
-窄顶部栏或 Herdr 移动布局可能隐藏原生 status 区域，可以打开详情面板查看。已验证 32×24 和 80 列窗口，包括中文路径和长短文字来回切换。任意数量磁盘或特别矮的面板没有自动滚动／分页，请放大面板或用 `once` 输出查看。
-
-## 更新与卸载
-
-GitHub 安装版重新安装即可更新，保留配置和状态：
-
-```sh
-herdr plugin install FaintGhost/herdr-system-stats
-```
-
-二进制路径改变时重新运行 Setup。Herdr 没有单独的 `plugin update`。
-
-卸载前，先从 `tab_bar_right` 移除本插件 command 条目，删除本插件可选快捷键，保留其他配置，再执行：
-
-```sh
-herdr config check
-herdr server reload-config
-herdr plugin uninstall faintghost.system-stats
-```
-
-Herdr 的 disable/uninstall 不会清除你手动添加的 command。只想隐藏读数时用 pause；想停止周期调用时删除 command 条目。本地 link 开发版用 `herdr plugin unlink faintghost.system-stats` 取消注册。Herdr 保留 config/state；仅在确实想丢弃设置时自行删除。
-
-## 开发与验证
-
-```sh
-git clone https://github.com/FaintGhost/herdr-system-stats.git
-cd herdr-system-stats
-go build -trimpath -ldflags='-s -w' -o bin/herdr-system-stats .
-herdr plugin link "$PWD"
-
-go test -race ./...
-go vet ./...
-```
-
-`plugin link` 不执行构建命令，所以先 build。不能用 `plugin install` 覆盖本地 link 的插件，需先 unlink。
-
-采样在 `metrics_linux.go`，渲染在 `render.go`，配置和锁定状态操作在 `state.go`，CLI 和终端生命周期在 `main.go`／`terminal_linux.go`。测试覆盖 CPU guest/iowait、计数器异常、可回收内存、磁盘保留块、Unicode 换行、并发状态切换和配置边界；CI 跑 race detector、vet，并构建 amd64/arm64。
-
-插件只读操作系统计数器、写自身状态标记，不调用 Herdr 控制 API；Herdr 负责调度和面板生命周期。
-
-## 市场与许可
-
-公开仓库的 `herdr-plugin` topic 和根目录 manifest 满足 [Herdr 市场自动发现规则](https://herdr.dev/docs/marketplace/)。市场约每 30 分钟刷新；收录属于社区发现，不代表 Herdr 审核或背书。
-
-[MIT License](LICENSE)。反馈问题：[GitHub Issues](https://github.com/FaintGhost/herdr-system-stats/issues)。
+MIT，见 [LICENSE](LICENSE)。

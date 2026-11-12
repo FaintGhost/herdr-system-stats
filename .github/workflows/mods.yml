@@ -1,0 +1,23 @@
+name: mods
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Parse the mods
+        run: |
+          node --check mods/sysstats/main.js
+          node --check mods/sysstats-panel/main.js
+      - name: Test the sampler and the formatting
+        run: node --test tests/*.test.mjs

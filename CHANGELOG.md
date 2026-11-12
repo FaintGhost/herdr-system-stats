@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0 - 2026-11-12
+
+- Port to herdr-app as two mods, written in JavaScript on gpui-kit: `sysstats` (one line in the status bar) and `sysstats-panel` (the details pane, split like a terminal).
+- Sample the machine a space lives on through `exec(..., { on })`, that is `hc exec --on <machine>`, so a window on Windows or macOS reports a Linux server's CPU, memory and disk.
+- Keep the TUI plugin's thresholds (red at 90, yellow at 75), four-cell meter, percent / used-total readings, multi-disk labels and Chinese captions; click the strip instead of `prefix+u`.
+- Drop the pieces that only made sense in the TUI: the `pause` / `resume` actions (sampling only happens while shown), the setup pane and the tab-bar command.
+- Remove the Go implementation, its tests, the plugin manifest and the Go CI from this repository; they stay in the history, and 1.1.0 was the last Go version.
+- Add `node --test` coverage for the sampler, the parser and the two mods' shared formatting, plus a CI job that parses both mods and runs it.
+
 ## 1.1.0 - 2026-10-10
 
 - Add green/yellow/red Unicode status markers to top-bar CPU, RAM and disk readings, using the detail pane's existing severity thresholds.
