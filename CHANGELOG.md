@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.1.0 - 2026-11-12
 
 - Sample macOS and Windows as well, with what each system ships: `iostat`, `sysctl` and `vm_stat` on macOS, PowerShell and the WMI classes (`Win32_PerfFormattedData_PerfOS_Processor`, `Win32_OperatingSystem`, `Win32_LogicalDisk`) on Windows. Linux is unchanged (`/proc`, `df`).
 - Ask a machine once which shell it speaks and remember it: `sh` when it answers, PowerShell when it does not, plus a MINGW/CYGWIN/MSYS answer from a Windows that has Git's shell on `PATH`. Windows no longer needs a space on another machine to be readable.
@@ -9,6 +9,7 @@
 - On Windows, `disks` takes drive letters (`"C:"`, `"D:\"`), the default `"/"` means the system drive, and the panel labels it with the real letter.
 - The panel's CPU caption names the window its number covers: `250 ms 采样` on Linux, `1 s 采样` on macOS, `WMI 计数` on Windows.
 - Tests cover the shared scripts, the direct-percentage and byte-based samples, and run the sampler for real on Linux, macOS or Windows; the Windows script is asserted to carry no double quote, so `exec` never has to escape it.
+- Rewrite both READMEs around the three platforms: what each system is read through, how a reading is defined (macOS APFS container, Windows drives), a props table, and a troubleshooting section that says how to run the samplers by hand. Refresh `docs/app.png`.
 
 ## 2.0.0 - 2026-11-12
 
