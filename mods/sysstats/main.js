@@ -332,11 +332,15 @@ export default class SysStats extends View {
       this.refresh(cx);
     }
     const sample = this.sample;
+    // Metrics hug the right edge, the way the status bar's own label and the
+    // palette hint do: a percentage-only strip is narrower than its block, and
+    // the gap belongs on the left, not between the last reading and the window.
     const strip = h_flex()
       .size_full()
       .px(14)
       .gap(16)
       .items_center()
+      .justify_end()
       .text_size(11.8)
       .bg(t.chrome)
       .border_t(1)
