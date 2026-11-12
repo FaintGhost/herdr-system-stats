@@ -7,12 +7,15 @@
 // `sysstats-panel` mod.
 //
 // The window runs on your computer, the numbers come from the machine the
-// space lives on: exec(..., { on: machine }) runs the sampler there.
+// space lives on: exec(..., { on: machine }) runs the sampler there. Linux,
+// macOS and Windows are all sampled with what those systems ship: /proc,
+// iostat + vm_stat, WMI through PowerShell.
 //
 // props: { machine?: "<hc machine name>", disks?: ["/", "/data"] }
 //   machine   pin a machine instead of following the shown space
-//   disks     mount points to report (default: ["/"]); with more than one the
-//             path is shown next to DISK, as in the TUI plugin
+//   disks     mount points to report (default: ["/"]); on Windows a drive
+//             ("C:", "D:\") and "/" means the system drive. With more than one
+//             the path is shown next to DISK, as in the TUI plugin
 //
 // Click the strip to switch between percentages and used/total.
 
@@ -21,23 +24,132 @@ import { h_flex } from "gpui-base";
 import { exec, props, spaces, theme } from "herdr";
 
 // One sample: the plugin's tab-bar entry ran every 5 s, with a 250 ms window
-// to turn /proc/stat counters into a CPU percentage.
+// to turn /proc/stat counters into a CPU percentage. Windows answers its first
+// WMI call slowly (a cold performance archive), so the timeout is roomy.
 const INTERVAL = 5000;
 const DISKS = ["/"];
 const METER = 4;
+const TIMEOUT = 15000;
 
-// Runs on the machine the space lives on (Linux): counters, memory, mounts.
-const SCRIPT = `cpu1=$(head -n1 /proc/stat); sleep 0.25; cpu2=$(head -n1 /proc/stat)
-printf 'C|%s\\nC|%s\\n' "$cpu1" "$cpu2"
-awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{printf "M|%s|%s\\n", t, a}' /proc/meminfo
-printf 'H|%s\\n' "$(cat /proc/sys/kernel/hostname 2>/dev/null)"
-for p in "$@"; do
-  if line=$(df -B1 --output=used,avail,size -- "$p" 2>/dev/null | tail -n1) && [ -n "$line" ]; then
-    printf 'D|%s|%s\\n' "$p" "$line"
-  else
-    printf 'D|%s|!\\n' "$p"
-  fi
-done`;
+// --- the sampler ------------------------------------------------------------
+
+// One wire format for every system: O (which one answered), U (a CPU
+// percentage the system reports directly), C (two /proc/stat counter lines),
+// M (total and available memory in bytes), H (host name) and D (a mount point:
+// used, available, size in bytes). Each sampler emits the lines its system can
+// answer; the reader below takes whichever it finds.
+
+// Linux and macOS: the POSIX shell and the tools both systems ship. /proc on
+// Linux; iostat, sysctl and vm_stat on macOS; df for the mounts. No sudo,
+// nothing to install, no daemon.
+const POSIX = `os=$(uname -s)
+printf 'O|%s\\n' "$os"
+case "$os" in
+  Darwin)
+    printf 'U|%s\\n' "$(iostat -c 2 -w 1 | tail -n 1 | awk '{printf "%.2f", $(NF-5)+$(NF-4)}')"
+    total=$(sysctl -n hw.memsize)
+    page=$(sysctl -n hw.pagesize)
+    vm_stat | awk -v ps="$page" -v total="$total" '
+      /^Pages free:/ {free=$3}
+      /^Pages inactive:/ {inactive=$3}
+      /^Pages speculative:/ {speculative=$3}
+      END {
+        gsub(/\\./, "", free)
+        gsub(/\\./, "", inactive)
+        gsub(/\\./, "", speculative)
+        printf "M|%.0f|%.0f\\n", total, (free+inactive+speculative)*ps
+      }'
+    printf 'H|%s\\n' "$(hostname)"
+    # df on / reads the sealed system volume (13 GB there); what the disk holds
+    # is the APFS container, as diskutil apfs list puts it: total less free.
+    for p in "$@"; do
+      line=$(df -k -- "$p" 2>/dev/null | tail -n 1)
+      if [ -n "$line" ]; then
+        printf 'D|%s|%s\\n' "$p" "$(printf '%s\\n' "$line" | awk '{printf "%.0f %.0f %.0f", ($2-$4)*1024, $4*1024, $2*1024}')"
+      else
+        printf 'D|%s|!\\n' "$p"
+      fi
+    done
+    ;;
+  *)
+    cpu1=$(head -n 1 /proc/stat); sleep 0.25; cpu2=$(head -n 1 /proc/stat)
+    printf 'C|%s\\nC|%s\\n' "$cpu1" "$cpu2"
+    awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{printf "M|%.0f|%.0f\\n", t*1024, a*1024}' /proc/meminfo
+    printf 'H|%s\\n' "$(uname -n)"
+    for p in "$@"; do
+      if line=$(df -B1 --output=used,avail,size -- "$p" 2>/dev/null | tail -n 1) && [ -n "$line" ]; then
+        printf 'D|%s|%s\\n' "$p" "$line"
+      else
+        printf 'D|%s|!\\n' "$p"
+      fi
+    done
+    ;;
+esac`;
+
+// Windows: PowerShell and the WMI classes Windows already has. The formatted
+// performance class is a counter Windows keeps for itself (no sampling
+// window), its logical disks answer the drives. No module, no service, nothing
+// installed; the drive list is embedded because exec takes no environment.
+function windowsScript(disks) {
+  const list = disks.map((path) => `'${String(path).replace(/'/g, "''")}'`).join(", ");
+  return `$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem
+$cpu = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor | Where-Object { $_.Name -eq '_Total' }).PercentProcessorTime
+if (-not $cpu) { $cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average }
+'O|Windows'
+'U|' + $cpu
+'M|' + ($os.TotalVisibleMemorySize * 1024) + '|' + ($os.FreePhysicalMemory * 1024)
+'H|' + $env:COMPUTERNAME
+$disks = Get-CimInstance Win32_LogicalDisk
+foreach ($p in @(${list})) {
+  $id = if ($p -match '^([A-Za-z]):') { $matches[1].ToUpper() + ':' } else { $env:SystemDrive }
+  $label = if ($p -match '^[A-Za-z]:') { $p } else { $id }
+  $d = $disks | Where-Object { $_.DeviceID -eq $id } | Select-Object -First 1
+  if ($d -and $d.Size -gt 0) { 'D|' + $label + '|' + ($d.Size - $d.FreeSpace) + ' ' + $d.FreeSpace + ' ' + $d.Size } else { 'D|' + $label + '|!' }
+}
+`;
+}
+
+// Which shell a machine speaks is asked once and then remembered: `sh` missing
+// means Windows, and a `sh` that calls itself MINGW/CYGWIN/MSYS means a Windows
+// with Git's shell on PATH. Every other machine keeps the POSIX sampler.
+const windowsMachines = new Set();
+
+const NO_SH = /cannot run sh|program not found/i;
+const WINDOWS_SH = /^(MINGW|MSYS|CYGWIN|UCRT64|CLANG64|MINGW64)/i;
+
+function osOf(text) {
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.slice(0, 2) === "O|") return line.slice(2).trim();
+  }
+  return "";
+}
+
+async function sample(on, disks, timeout) {
+  const key = on ?? "";
+  if (!windowsMachines.has(key)) {
+    let missing = false;
+    let result = null;
+    try {
+      result = await exec("sh", ["-c", POSIX, "sh", ...disks], { on, timeout });
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      if (!NO_SH.test(message)) throw error;
+      missing = true;
+    }
+    if (!missing && !WINDOWS_SH.test(osOf(result?.stdout))) {
+      if (result?.code === 0 && String(result.stdout ?? "").trim() !== "") return result.stdout;
+      throw new Error(String(result?.stderr ?? "").trim().split("\n")[0] || "no sample");
+    }
+    windowsMachines.add(key);
+  }
+  const result = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsScript(disks)], {
+    on,
+    timeout,
+  });
+  if (result?.code === 0 && String(result.stdout ?? "").trim() !== "") return result.stdout;
+  throw new Error(String(result?.stderr ?? "").trim().split("\n")[0] || "no sample");
+}
 
 // --- reading the sample -----------------------------------------------------
 
@@ -63,18 +175,23 @@ function cpuPercent(before, after) {
 }
 
 function parseSample(text) {
-  const sample = { cpu: null, mem: null, host: "", disks: [] };
+  const sample = { os: "", cpu: null, mem: null, host: "", disks: [] };
   const counters = [];
+  let direct = null;
   for (const line of String(text ?? "").split("\n")) {
     const field = line.split("|");
-    if (field[0] === "C") {
+    if (field[0] === "O") {
+      sample.os = String(field[1] ?? "").trim();
+    } else if (field[0] === "U") {
+      const percent = Number(String(field[1] ?? "").trim());
+      if (percent >= 0 && percent <= 100) direct = percent;
+    } else if (field[0] === "C") {
       counters.push(parseCounters(field[1]));
     } else if (field[0] === "M") {
-      const totalKb = Number(field[1]);
-      const availableKb = Number(field[2]);
-      if (totalKb > 0 && availableKb >= 0 && availableKb <= totalKb) {
-        const total = totalKb * 1024;
-        const used = (totalKb - availableKb) * 1024;
+      const total = Number(String(field[1] ?? "").trim());
+      const available = Number(String(field[2] ?? "").trim());
+      if (total > 0 && available >= 0 && available <= total) {
+        const used = total - available;
         sample.mem = { used, total, percent: (100 * used) / total };
       }
     } else if (field[0] === "H") {
@@ -95,7 +212,8 @@ function parseSample(text) {
       sample.disks.push({ path, used, free, total, percent: capacity === 0 ? null : Math.ceil((used * 100) / capacity) });
     }
   }
-  sample.cpu = counters.length >= 2 ? cpuPercent(counters[0], counters[1]) : null;
+  // /proc gives two counter lines; macOS and Windows give the percentage itself.
+  sample.cpu = counters.length >= 2 ? cpuPercent(counters[0], counters[1]) : direct;
   return sample;
 }
 
@@ -128,6 +246,14 @@ function meterCount(percent, columns) {
   return Math.round((Math.min(100, Math.max(0, percent)) * columns) / 100);
 }
 
+// The window the CPU number covers, per system: a counter pair, a sampled
+// interval, or a counter Windows keeps by itself.
+function sampleWindow(os) {
+  if (os === "Windows") return "WMI 计数";
+  if (os === "Darwin") return "1 s 采样";
+  return "250 ms 采样";
+}
+
 // --- the mod ----------------------------------------------------------------
 
 export default class SysStats extends View {
@@ -155,20 +281,14 @@ export default class SysStats extends View {
     if (this.busy) return;
     const on = this.target();
     const disks = this.disks();
-    const key = `${on ?? ""}|${disks.join(",")}`;
-    this.key = key;
+    this.key = `${on ?? ""}|${disks.join(",")}`;
     this.busy = true;
     cx.spawn(async (cx) => {
       try {
-        const result = await exec("sh", ["-c", SCRIPT, "sh", ...disks], { on, timeout: 10000 });
-        if (result?.code === 0 && typeof result.stdout === "string" && result.stdout.trim() !== "") {
-          this.sample = parseSample(result.stdout);
-          this.error = "";
-        } else {
-          this.error = String(result?.stderr ?? "").trim().split("\n")[0] || "no sample";
-        }
+        this.sample = parseSample(await sample(on, disks, TIMEOUT));
+        this.error = "";
       } catch (error) {
-        // Unreachable machine, a machine without sh, a timeout.
+        // Unreachable machine, no shell at all, a timeout.
         this.error = String(error?.message ?? error);
       } finally {
         this.busy = false;
